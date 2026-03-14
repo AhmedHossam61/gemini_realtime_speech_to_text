@@ -1,3 +1,4 @@
 pyaudio
 numpy
-google-generativeai 
+google-generativeai
+python-dotenv
