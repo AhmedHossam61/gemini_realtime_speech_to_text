@@ -33,46 +33,46 @@ The project employs a multithreaded architecture to ensure contiguous audio reco
 
 ```mermaid
 flowchart TD
-    subgraph Config [config.py / .env]
+    subgraph CFG [config.py / .env]
         Cfg[AppConfig\nAPI key · model · languages\nchunk duration · RMS threshold]
     end
 
-    subgraph Entrypoint [app.py]
+    subgraph APP [app.py]
         Run[run\nload_config · configure_gemini\nspawn threads · handle Ctrl+C]
         StopEvt([should_stop Event])
     end
 
-    subgraph Recording Thread [audio.py — record_audio]
+    subgraph REC [audio.py - record_audio]
         Warmup[Discard warm-up frames]
         CaptureChunk[Capture N frames\nper chunk_duration_sec]
-        RMS{Chunk RMS\n> threshold?}
+        RMS{Chunk RMS\ngreater than threshold?}
     end
 
-    subgraph Processing Thread [pipeline.py — process_audio]
+    subgraph PROC [pipeline.py - process_audio]
         Dequeue[Dequeue chunk frames]
         WAV[Save temp_chunk.wav]
         Cleanup[Delete temp_chunk.wav]
         Accumulate[Append to\naccumulated_transcription]
     end
 
-    subgraph Gemini Client [gemini_client.py — transcribe_chunk]
+    subgraph GEM [gemini_client.py - transcribe_chunk]
         Transcribe[Transcribe audio\nvia inline WAV bytes]
-        TranslateDecision{target_language\nset & differs\nfrom source?}
+        TranslateDecision{target_language\nset and differs\nfrom source?}
         Translate[Translate transcription]
     end
 
-    subgraph Output
+    subgraph OUT [Output]
         Console[stdout\ncolored via console.py]
         OutFile[translation_output.txt\nsaved on exit]
     end
 
     Cfg -->|injected into| Run
-    Run -->|spawns| Recording Thread
-    Run -->|spawns| Processing Thread
-    StopEvt -.->|signals stop| Recording Thread
-    StopEvt -.->|signals stop| Processing Thread
+    Run -->|spawns| REC
+    Run -->|spawns| PROC
+    StopEvt -.->|signals stop| REC
+    StopEvt -.->|signals stop| PROC
 
-    Mic[🎤 Microphone] -->|PCM frames| Warmup
+    Mic[Microphone] -->|PCM frames| Warmup
     Warmup --> CaptureChunk
     CaptureChunk -->|compute RMS| RMS
     RMS -- Yes --> Queue([Thread-safe\nAudio Queue])
@@ -81,14 +81,14 @@ flowchart TD
     Queue -->|get frames| Dequeue
     Dequeue --> WAV
     WAV -->|inline bytes| Transcribe
-    Transcribe -->|audio prompt| GeminiAI[☁️ Google Gemini API]
+    Transcribe -->|audio prompt| GeminiAI[Google Gemini API]
     GeminiAI -->|raw text| Transcribe
     Transcribe --> TranslateDecision
     TranslateDecision -- Yes --> Translate
     Translate -->|text prompt| GeminiAI
     GeminiAI -->|translated text| Translate
     Translate --> Cleanup
-    TranslateDecision -- No, return transcription --> Cleanup
+    TranslateDecision -- No --> Cleanup
     Cleanup --> Accumulate
     Accumulate -->|print result| Console
     Accumulate -->|on exit, write all| OutFile
