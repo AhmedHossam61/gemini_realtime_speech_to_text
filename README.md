@@ -27,6 +27,56 @@ A real-time speech to text translation tool using Google's Gemini API.
 - `src/gemini_realtime_stt/pipeline.py`: WAV chunk persistence and processing pipeline.
 - `src/gemini_realtime_stt/config.py`: Centralized runtime configuration.
 
+## Architecture
+
+The project employs a multithreaded architecture to ensure contiguous audio recording without dropping frames while API requests are pending.
+
+```mermaid
+flowchart TD
+    subgraph Input
+        Mic[Microphone Input]
+    end
+
+    subgraph App Orchestration
+        Queue([Thread-safe Audio Queue])
+    end
+
+    subgraph Recording Thread [audio.py]
+        Rec[record_audio]
+        RMS{RMS > Threshold?}
+    end
+
+    subgraph Processing Thread [pipeline.py]
+        Proc[process_audio]
+        WAV[Save temp_chunk.wav]
+    end
+
+    subgraph Gemini Client [gemini_client.py]
+        Transcribe[Transcribe Audio]
+        Translate[Translate Text if Target Lang given]
+    end
+
+    Mic -->|Capture frames| Rec
+    Rec -->|Calculate RMS| RMS
+    RMS -- Yes -->|Enqueue Audio Frames| Queue
+    RMS -- No (Silence) --> Rec
+
+    Queue -->|Dequeue Frames| Proc
+    Proc --> WAV
+    WAV --> Transcribe
+    Transcribe -->|Audio Data File| GeminiAI[Google Gemini API]
+    GeminiAI -->|Raw Text| Transcribe
+    
+    Transcribe --> Translate
+    Translate -->|Text Prompt| GeminiAI
+    GeminiAI -->|Translated Text| Translate
+    
+    Translate --> Proc
+
+    Proc -->|Print| Console[Standard Output]
+    Proc -->|Save on Exit| OutFile[translation_output.txt]
+```
+
 ## Features
 - Continuous audio recording and processing
 - Real-time transcription of speech
