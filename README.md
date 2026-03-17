@@ -58,8 +58,8 @@ flowchart TD
 
     Mic -->|Capture frames| Rec
     Rec -->|Calculate RMS| RMS
-    RMS -- Yes -->|Enqueue Audio Frames| Queue
-    RMS -- No (Silence) --> Rec
+    RMS -- Yes, Enqueue Frames --> Queue
+    RMS -- No, Silence --> Rec
 
     Queue -->|Dequeue Frames| Proc
     Proc --> WAV
