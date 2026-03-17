@@ -32,66 +32,39 @@ A real-time speech to text translation tool using Google's Gemini API.
 The project employs a multithreaded architecture to ensure contiguous audio recording without dropping frames while API requests are pending.
 
 ```mermaid
-flowchart TD
-    subgraph CFG [config.py / .env]
-        Cfg[AppConfig\nAPI key · model · languages\nchunk duration · RMS threshold]
+flowchart LR
+    Mic[🎤 Microphone] -->|raw audio| REC
+
+    subgraph REC [Recording Thread]
+        direction TB
+        R1[Capture audio chunk\nper configured duration]
+        R2{Speech detected?\nRMS threshold check}
+        R1 --> R2
     end
 
-    subgraph APP [app.py]
-        Run[run\nload_config · configure_gemini\nspawn threads · handle Ctrl+C]
-        StopEvt([should_stop Event])
+    R2 -- Silence --> R1
+    R2 -- Speech --> Q([Audio Queue])
+
+    Q --> PROC
+
+    subgraph PROC [Processing Thread]
+        direction TB
+        P1[Save chunk as WAV]
+        P2[Send to Gemini API]
+        P3{Translate?}
+        P4[Arabic → English\nor English → Arabic]
+        P1 --> P2 --> P3
+        P3 -- Yes --> P4
     end
 
-    subgraph REC [audio.py - record_audio]
-        Warmup[Discard warm-up frames]
-        CaptureChunk[Capture N frames\nper chunk_duration_sec]
-        RMS{Chunk RMS\ngreater than threshold?}
-    end
-
-    subgraph PROC [pipeline.py - process_audio]
-        Dequeue[Dequeue chunk frames]
-        WAV[Save temp_chunk.wav]
-        Cleanup[Delete temp_chunk.wav]
-        Accumulate[Append to\naccumulated_transcription]
-    end
-
-    subgraph GEM [gemini_client.py - transcribe_chunk]
-        Transcribe[Transcribe audio\nvia inline WAV bytes]
-        TranslateDecision{target_language\nset and differs\nfrom source?}
-        Translate[Translate transcription]
-    end
+    P3 -- No --> OUT
+    P4 --> OUT
 
     subgraph OUT [Output]
-        Console[stdout\ncolored via console.py]
-        OutFile[translation_output.txt\nsaved on exit]
+        direction TB
+        O1[Print to terminal]
+        O2[Save to translation_output.txt]
     end
-
-    Cfg -->|injected into| Run
-    Run -->|spawns| REC
-    Run -->|spawns| PROC
-    StopEvt -.->|signals stop| REC
-    StopEvt -.->|signals stop| PROC
-
-    Mic[Microphone] -->|PCM frames| Warmup
-    Warmup --> CaptureChunk
-    CaptureChunk -->|compute RMS| RMS
-    RMS -- Yes --> Queue([Thread-safe\nAudio Queue])
-    RMS -- No, silence detected --> CaptureChunk
-
-    Queue -->|get frames| Dequeue
-    Dequeue --> WAV
-    WAV -->|inline bytes| Transcribe
-    Transcribe -->|audio prompt| GeminiAI[Google Gemini API]
-    GeminiAI -->|raw text| Transcribe
-    Transcribe --> TranslateDecision
-    TranslateDecision -- Yes --> Translate
-    Translate -->|text prompt| GeminiAI
-    GeminiAI -->|translated text| Translate
-    Translate --> Cleanup
-    TranslateDecision -- No --> Cleanup
-    Cleanup --> Accumulate
-    Accumulate -->|print result| Console
-    Accumulate -->|on exit, write all| OutFile
 ```
 
 ## Features
