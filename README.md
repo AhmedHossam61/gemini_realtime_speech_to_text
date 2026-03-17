@@ -33,48 +33,65 @@ The project employs a multithreaded architecture to ensure contiguous audio reco
 
 ```mermaid
 flowchart TD
-    subgraph Input
-        Mic[Microphone Input]
+    subgraph Config [config.py / .env]
+        Cfg[AppConfig\nAPI key · model · languages\nchunk duration · RMS threshold]
     end
 
-    subgraph App Orchestration
-        Queue([Thread-safe Audio Queue])
+    subgraph Entrypoint [app.py]
+        Run[run\nload_config · configure_gemini\nspawn threads · handle Ctrl+C]
+        StopEvt([should_stop Event])
     end
 
-    subgraph Recording Thread [audio.py]
-        Rec[record_audio]
-        RMS{RMS > Threshold?}
+    subgraph Recording Thread [audio.py — record_audio]
+        Warmup[Discard warm-up frames]
+        CaptureChunk[Capture N frames\nper chunk_duration_sec]
+        RMS{Chunk RMS\n> threshold?}
     end
 
-    subgraph Processing Thread [pipeline.py]
-        Proc[process_audio]
+    subgraph Processing Thread [pipeline.py — process_audio]
+        Dequeue[Dequeue chunk frames]
         WAV[Save temp_chunk.wav]
+        Cleanup[Delete temp_chunk.wav]
+        Accumulate[Append to\naccumulated_transcription]
     end
 
-    subgraph Gemini Client [gemini_client.py]
-        Transcribe[Transcribe Audio]
-        Translate[Translate Text if Target Lang given]
+    subgraph Gemini Client [gemini_client.py — transcribe_chunk]
+        Transcribe[Transcribe audio\nvia inline WAV bytes]
+        TranslateDecision{target_language\nset & differs\nfrom source?}
+        Translate[Translate transcription]
     end
 
-    Mic -->|Capture frames| Rec
-    Rec -->|Calculate RMS| RMS
-    RMS -- Yes, Enqueue Frames --> Queue
-    RMS -- No, Silence --> Rec
+    subgraph Output
+        Console[stdout\ncolored via console.py]
+        OutFile[translation_output.txt\nsaved on exit]
+    end
 
-    Queue -->|Dequeue Frames| Proc
-    Proc --> WAV
-    WAV --> Transcribe
-    Transcribe -->|Audio Data File| GeminiAI[Google Gemini API]
-    GeminiAI -->|Raw Text| Transcribe
-    
-    Transcribe --> Translate
-    Translate -->|Text Prompt| GeminiAI
-    GeminiAI -->|Translated Text| Translate
-    
-    Translate --> Proc
+    Cfg -->|injected into| Run
+    Run -->|spawns| Recording Thread
+    Run -->|spawns| Processing Thread
+    StopEvt -.->|signals stop| Recording Thread
+    StopEvt -.->|signals stop| Processing Thread
 
-    Proc -->|Print| Console[Standard Output]
-    Proc -->|Save on Exit| OutFile[translation_output.txt]
+    Mic[🎤 Microphone] -->|PCM frames| Warmup
+    Warmup --> CaptureChunk
+    CaptureChunk -->|compute RMS| RMS
+    RMS -- Yes --> Queue([Thread-safe\nAudio Queue])
+    RMS -- No, silence detected --> CaptureChunk
+
+    Queue -->|get frames| Dequeue
+    Dequeue --> WAV
+    WAV -->|inline bytes| Transcribe
+    Transcribe -->|audio prompt| GeminiAI[☁️ Google Gemini API]
+    GeminiAI -->|raw text| Transcribe
+    Transcribe --> TranslateDecision
+    TranslateDecision -- Yes --> Translate
+    Translate -->|text prompt| GeminiAI
+    GeminiAI -->|translated text| Translate
+    Translate --> Cleanup
+    TranslateDecision -- No, return transcription --> Cleanup
+    Cleanup --> Accumulate
+    Accumulate -->|print result| Console
+    Accumulate -->|on exit, write all| OutFile
 ```
 
 ## Features
